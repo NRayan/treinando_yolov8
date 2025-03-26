@@ -3,6 +3,8 @@ import onnxruntime as ort
 import numpy as np
 import cv2
 from PIL import Image
+import torch
+from torchvision.ops import nms
 
 # Carregar o modelo ONNX
 model_path = 'best.onnx'  # Caminho para o arquivo .onnx
@@ -18,7 +20,7 @@ def preprocess_image(image_path):
     return img_array, img
 
 # Caminho para a imagem de teste
-image_path = 'datasets/broca/train/24.jpg'
+image_path = 'datasets/broca/train/4.jpg'
 
 # Preprocessar a imagem
 input_data, img = preprocess_image(image_path)
@@ -58,13 +60,25 @@ boxes_converted[:, 3] = boxes[:, 1] + boxes[:, 3] / 2  # y_max
 
 # Filtrar caixas com confiança acima de um limiar
 confidence_threshold = 0.55
-indices = np.where(confidences > confidence_threshold)[0]
-
-# Aplicar filtro
+indices = confidences > confidence_threshold
 filtered_boxes = boxes_converted[indices]
 filtered_confidences = confidences[indices]
 
 print(f"Detecções após filtro de confiança: {len(filtered_boxes)}")
+
+# Aplicar NMS
+if len(filtered_boxes) > 0:
+    boxes_tensor = torch.tensor(filtered_boxes, dtype=torch.float32)
+    scores_tensor = torch.tensor(filtered_confidences, dtype=torch.float32)
+    iou_threshold = 0.5
+    keep = nms(boxes_tensor, scores_tensor, iou_threshold)
+    final_boxes = filtered_boxes[keep.numpy()]
+    final_confidences = filtered_confidences[keep.numpy()]
+    print(f"Detecções após NMS: {len(final_boxes)}")
+else:
+    final_boxes = filtered_boxes
+    final_confidences = filtered_confidences
+    print("Nenhuma detecção após filtro de confiança, NMS não aplicado.")
 
 # Função para desenhar caixas na imagem
 def draw_boxes(img, boxes, confidences):
@@ -87,7 +101,7 @@ def draw_boxes(img, boxes, confidences):
     return img_array
 
 # Desenhar as caixas na imagem
-img_with_boxes = draw_boxes(img, filtered_boxes, filtered_confidences)
+img_with_boxes = draw_boxes(img, final_boxes, final_confidences)
 
 # Exibir a imagem com as caixas
 cv2.imshow('Predictions', img_with_boxes)
